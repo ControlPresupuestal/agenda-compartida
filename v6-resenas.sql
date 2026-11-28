@@ -1,0 +1,22 @@
+BEGIN;
+DO $$ DECLARE typ text; BEGIN
+SELECT format_type(a.atttypid,a.atttypmod) INTO typ FROM pg_attribute a WHERE a.attrelid='public.agenda_contactos'::regclass AND a.attname='id' AND NOT a.attisdropped;
+EXECUTE format('CREATE TABLE IF NOT EXISTS public.agenda_resenas (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), contacto_id %s NOT NULL REFERENCES public.agenda_contactos(id) ON DELETE CASCADE, alias text NOT NULL CHECK (char_length(trim(alias)) BETWEEN 2 AND 80), comentario text NOT NULL CHECK (char_length(trim(comentario)) BETWEEN 5 AND 1000), estrellas smallint NOT NULL CHECK (estrellas BETWEEN 1 AND 5), recomienda text NOT NULL CHECK (recomienda IN (''si'',''talvez'',''no'')), calidad smallint CHECK (calidad BETWEEN 1 AND 5), puntualidad smallint CHECK (puntualidad BETWEEN 1 AND 5), precio smallint CHECK (precio BETWEEN 1 AND 5), atencion smallint CHECK (atencion BETWEEN 1 AND 5), responsabilidad smallint CHECK (responsabilidad BETWEEN 1 AND 5), experiencia_confirmada boolean NOT NULL CHECK (experiencia_confirmada), estado text NOT NULL DEFAULT ''pendiente'' CHECK (estado IN (''pendiente'',''aprobado'',''rechazado'')), creado_en timestamptz NOT NULL DEFAULT now())',typ);
+END $$;
+ALTER TABLE public.agenda_resenas ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.agenda_resenas FROM anon, authenticated;
+GRANT SELECT ON public.agenda_resenas TO anon, authenticated;
+GRANT INSERT (contacto_id,alias,comentario,estrellas,recomienda,calidad,puntualidad,precio,atencion,responsabilidad,experiencia_confirmada) ON public.agenda_resenas TO anon, authenticated;
+GRANT UPDATE (estado), DELETE ON public.agenda_resenas TO authenticated;
+DROP POLICY IF EXISTS resenas_publicas ON public.agenda_resenas;
+CREATE POLICY resenas_publicas ON public.agenda_resenas FOR SELECT TO anon,authenticated USING (estado='aprobado' AND EXISTS (SELECT 1 FROM public.agenda_contactos c WHERE c.id=contacto_id AND c.estado='aprobado'));
+DROP POLICY IF EXISTS resenas_admin_lectura ON public.agenda_resenas;
+CREATE POLICY resenas_admin_lectura ON public.agenda_resenas FOR SELECT TO authenticated USING ((SELECT public.es_admin_agenda()));
+DROP POLICY IF EXISTS resenas_envio ON public.agenda_resenas;
+CREATE POLICY resenas_envio ON public.agenda_resenas FOR INSERT TO anon,authenticated WITH CHECK (estado='pendiente' AND EXISTS (SELECT 1 FROM public.agenda_contactos c WHERE c.id=contacto_id AND c.estado='aprobado'));
+DROP POLICY IF EXISTS resenas_admin_update ON public.agenda_resenas;
+CREATE POLICY resenas_admin_update ON public.agenda_resenas FOR UPDATE TO authenticated USING ((SELECT public.es_admin_agenda())) WITH CHECK ((SELECT public.es_admin_agenda()));
+DROP POLICY IF EXISTS resenas_admin_delete ON public.agenda_resenas;
+CREATE POLICY resenas_admin_delete ON public.agenda_resenas FOR DELETE TO authenticated USING ((SELECT public.es_admin_agenda()));
+CREATE INDEX IF NOT EXISTS agenda_resenas_contacto_estado ON public.agenda_resenas(contacto_id,estado);
+COMMIT;
